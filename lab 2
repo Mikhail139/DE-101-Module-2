@@ -1,0 +1,134 @@
+CREATE TABLE calendar
+(
+ order_date date NOT NULL,
+ ship_date  date NOT NULL,
+ year       integer NOT NULL,
+ quarter    varchar(20) NOT NULL,
+ month      integer NOT NULL,
+ week       integer NOT NULL,
+ week_day   varchar(20) NOT NULL,
+ CONSTRAINT PK_1 PRIMARY KEY ( order_date, ship_date )
+);
+
+CREATE TABLE geography
+(
+ geo_id      serial NOT NULL,
+ country     varchar(50) NOT NULL,
+ city        varchar(50) NOT NULL,
+ "state"       varchar(50) NOT NULL,
+ region      varchar(50) NOT NULL,
+ postal_code integer NOT NULL,
+ CONSTRAINT PK_2 PRIMARY KEY ( geo_id )
+);
+
+CREATE TABLE product
+(
+ product_id   serial NOT NULL,
+ category     varchar(20) NOT NULL,
+ subcategory  varchar(20) NOT NULL,
+ segment      varchar(20) NOT NULL,
+ product_name varchar(200) NOT NULL,
+ CONSTRAINT PK_3 PRIMARY KEY ( product_id )
+);
+
+CREATE TABLE shipping_dim
+(
+ ship_id   serial NOT NULL,
+ ship_mode varchar(20) NOT NULL,
+ CONSTRAINT PK_4 PRIMARY KEY ( ship_id )
+);
+
+CREATE TABLE customer_dim
+(
+ cust_id       serial NOT NULL,
+ customer_id   varchar(30) NOT NULL,
+ customer_name varchar(50) NOT NULL,
+ CONSTRAINT PK_5 PRIMARY KEY ( cust_id )
+);
+
+CREATE TABLE sales_fact
+(
+ row_id     serial NOT NULL,
+ order_id   varchar(20) NOT NULL,
+ sales      numeric(9,4) NOT NULL,
+ quantity   integer NOT NULL,
+ discount   numeric(4,2) NOT NULL,
+ profit     numeric(21,16) NOT NULL,
+ geo_id     int NOT NULL,
+ product_id int NOT NULL,
+ order_date date NOT NULL,
+ ship_date  date NOT NULL,
+ ship_id    int NOT NULL,
+ cust_id    int NOT NULL,
+ CONSTRAINT PK_6 PRIMARY KEY ( row_id ),
+ CONSTRAINT FK_7 FOREIGN KEY ( geo_id ) REFERENCES geography ( geo_id ),
+ CONSTRAINT FK_8 FOREIGN KEY ( product_id ) REFERENCES product ( product_id ),
+ CONSTRAINT FK_9 FOREIGN KEY ( order_date, ship_date ) REFERENCES calendar ( order_date, ship_date ),
+ CONSTRAINT FK_10 FOREIGN KEY ( ship_id ) REFERENCES shipping_dim ( ship_id ),
+ CONSTRAINT FK_11 FOREIGN KEY ( cust_id ) REFERENCES customer_dim ( cust_id )
+);
+
+CREATE INDEX FK_1 ON sales_fact
+(
+ geo_id
+);
+
+CREATE INDEX FK_2 ON sales_fact
+(
+ product_id
+);
+
+CREATE INDEX FK_3 ON sales_fact
+(
+ order_date,
+ ship_date
+);
+
+CREATE INDEX FK_4 ON sales_fact
+(
+ ship_id
+);
+
+CREATE INDEX FK_5 ON sales_fact
+(
+ cust_id
+);
+
+-- заполнение таблицы shipping_dim со счетчиком
+insert into shipping_dim 
+select 100+row_number() over (), ship_mode from (select distinct ship_mode from orders o) a;
+-- заполнение таблицы calendar
+insert into calendar
+select
+order_date::date,
+order_date::date,
+       extract('year' from order_date)::int as year,
+       extract('quarter' from order_date)::int as quarter,
+       extract('month' from order_date)::int as month,
+       extract('week' from order_date)::int as week,
+       to_char(order_date, 'dy') as week_day
+  from generate_series(date '2000-01-01',
+                       date '2030-01-01',
+                       interval '1 day')
+       as t(order_date);
+-- заполнение таблицы geography со счетчиком
+insert into geography
+select 100+row_number() over (), 
+country, city, state, region, postal_code from (select distinct country, city, state, region, postal_code from orders) a
+-- заполнение таблицы product со счетчиком
+insert into product
+select 100+row_number() over (), 
+category, subcategory, segment, product_name from (select distinct category, subcategory, segment, product_name from orders) a
+-- заполнение таблицы customer_dim со счетчиком
+insert into customer_dim
+select 100+row_number() over (), 
+customer_id, customer_name from (select distinct customer_id, customer_name from orders) a
+-- заполнение таблицы sales_fact
+insert into sales_fact
+select 0+row_number() over (),
+order_id, sales, quantity, discount, profit, geo_id, product_id, order_date, ship_date, ship_id, cust_id from 
+(select order_id, sales, quantity, discount, profit, g.geo_id, p.product_id, o.order_date, o.ship_date, s.ship_id, c.cust_id from orders o
+inner join geography g on (o.postal_code=g.postal_code and o.country=g.country and o.city=g.city and o.state=g.state and o.region=g.region)
+inner join product p on (o.category=p.category and o.subcategory=p.subcategory and o.segment=p.segment and o.product_name=p.product_name)
+inner join shipping_dim s on (o.ship_mode=s.ship_mode)
+inner join customer_dim c on (o.customer_id=c.customer_id and o.customer_name=c.customer_name) ) a
